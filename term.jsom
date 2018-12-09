@@ -1,0 +1,11 @@
+{
+    "prefix": "30 ",
+    "sufix": "\n",
+    "commands": [ 
+        "poll",                                                                                                                                                                                                             
+        "help",                                                                                                                                                                                                             
+        "FW_Restart",                                                                                                                                                                                                       
+        "FW_Revision",                                                                                                                                                                                                      
+        ],
+    "init": "help"
+}
