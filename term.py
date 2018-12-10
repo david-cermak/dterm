@@ -7,6 +7,19 @@ import os
 import re
 from threading import Thread
 import time
+import paho.mqtt.client as mqtt
+
+connected = 0
+mqtt_data = []
+
+def on_connect(client, userdata, flags, rc):
+    global connected
+    connected = 1
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    global mqtt_data
+    mqtt_data.append(msg.payload)
 
 class Terminal(object):
     def __init__(self, serial_port, cfg):
@@ -20,7 +33,22 @@ class Terminal(object):
         self.sufix = cfg["sufix"]
         self.commands = cfg["commands"]
         self.init_cmd = cfg["init"]
+        self.cfg = cfg
         self.search_i = 0
+        self.remote = False
+        self.port = None
+        self.ser = None
+        self.client = None
+        if "remote" in cfg and serial_port == 'R':
+            self.remote = True
+            self.client = mqtt.Client()
+            self.client.on_connect = on_connect
+            self.client.on_message = on_message            
+        else:
+            self.ser = serial.Serial(
+                    port=serial_port,
+                    baudrate=115200,
+                )
 
         curses.echo()
         curses.cbreak()
@@ -41,10 +69,6 @@ class Terminal(object):
         self.refresh()
 
         self.len = curses.LINES
-        self.ser = serial.Serial(
-            port=serial_port,
-            baudrate=115200,
-        )
         self.run_serial = True
         self.start()
 
@@ -70,11 +94,22 @@ class Terminal(object):
             self.window.addstr(idx+ self.search_h + 2, 1, " "*(self.log_width - 2), curses.color_pair(1))
             self.window.addstr(idx+ self.search_h + 2, 1, item, curses.color_pair(1))
 
+    def send(self, data):
+        # TODO: replace with class encapsulation (port.send)
+        if self.remote:
+            self.client.publish(self.cfg["remote"]["publish"], data, 0)
+        else:
+            self.ser.write(data)
+
     def start(self):
         """ Application started """
-        thread1 = Thread(target = self.serial_thread )
+        thread1 = None
+        if self.remote:
+            thread1 = Thread(target = self.mqtt_thread )
+        else:
+            thread1 = Thread(target = self.serial_thread )
         thread1.start()
-        self.ser.write((self.prefix + self.init_cmd + self.sufix).encode())
+        self.send((self.prefix + self.init_cmd + self.sufix).encode())
         search_i = 0
         search_f = ''
         try:
@@ -105,7 +140,7 @@ class Terminal(object):
                         message = self.window.getstr(1,1 + len(self.search_box[self.selected-1]), 15)
                         self.window.nodelay(True)
                         curses.noecho()
-                        self.ser.write(self.prefix.encode() + self.search_box[self.selected-1].encode() +  message + self.sufix.encode() )
+                        self.send(self.prefix.encode() + self.search_box[self.selected-1].encode() +  message + self.sufix.encode() )
                         self.selected = 0
                 elif ch == curses.KEY_ENTER or ch == 10 or ch == 13:
                     self.search_i = 0
@@ -118,9 +153,9 @@ class Terminal(object):
                         message = self.window.getstr(1,1, 15)
                         self.window.nodelay(True)
                         curses.noecho()
-                        self.ser.write(self.prefix.encode() + message + self.sufix.encode() )
+                        self.send(self.prefix.encode() + message + self.sufix.encode() )
                     else:
-                        self.ser.write(self.prefix.encode() + self.search_box[self.selected-1].encode() +self.sufix.encode() )
+                        self.send(self.prefix.encode() + self.search_box[self.selected-1].encode() +self.sufix.encode() )
                     self.search_box = self.commands[:self.search_h-1]
                     self.selected = 0
                 elif ch ==  ord('q'):
@@ -160,6 +195,24 @@ class Terminal(object):
                 out = b""
             time.sleep(0.02)
 
+    def mqtt_thread(self):
+        global mqtt_data
+        global connected
+        self.client.connect(self.cfg["remote"]["broker"], 1883, 60)
+        self.client.subscribe(self.cfg["remote"]["subscribe"])
+        last_len = 0
+        while self.run_serial:
+            self.client.loop()
+            if  connected == 0:
+                self.window.addstr(1, 1, "|", curses.color_pair(4))
+                time.sleep(0.02)
+                self.window.addstr(1, 1, "--", curses.color_pair(4))
+                time.sleep(0.02)                
+            else:
+                if len(mqtt_data) != last_len:
+                    self.log = mqtt_data
+                    last_len = len(mqtt_data)
+            time.sleep(0.02)
 
 def main():
     parser = argparse.ArgumentParser(description='Simple serial terminal')

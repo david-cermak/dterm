@@ -2,10 +2,17 @@
     "prefix": "30 ",
     "sufix": "\n",
     "commands": [ 
-        "poll",                                                                                                                                                                                                             
+        "Tmp_in",                                                                                                                                                                                                             
+        "Tmp_out",                                                                                                                                                                                                             
+        "poll",                                                                                                                                                                                                                                                                                                                                                                                                             
         "help",                                                                                                                                                                                                             
         "FW_Restart",                                                                                                                                                                                                       
-        "FW_Revision",                                                                                                                                                                                                      
+        "FW_Revision"
         ],
-    "init": "help"
+    "init": "help",
+    "remote": {
+        "broker": "iot.eclipse.org",
+        "subscribe": "/remoteterm/0001/out",
+        "publish": "/remoteterm/0001/in"
+    }
 }
