@@ -86,11 +86,7 @@ class Terminal(object):
                         self.window.addstr(1, 1, "----Enter-to-edit----", curses.color_pair(4))
                     self.window.addstr(idx + 2, 1, item, curses.color_pair(5))
         curses.textpad.rectangle(self.window, self.search_h + 1, 0, self.height - 2, self.log_width)
-        log_size = len(self.log)
-        top = log_size - (self.log_height - 3)
-        if top < 0:
-            top = 0
-        for idx, item in enumerate(self.log[top:log_size]):
+        for idx, item in enumerate(self.log[-(self.height - 4  - self.search_h):]):
             self.window.addstr(idx+ self.search_h + 2, 1, " "*(self.log_width - 2), curses.color_pair(1))
             self.window.addstr(idx+ self.search_h + 2, 1, item, curses.color_pair(1))
 
@@ -158,6 +154,10 @@ class Terminal(object):
                         self.send(self.prefix.encode() + self.search_box[self.selected-1].encode() +self.sufix.encode() )
                     self.search_box = self.commands[:self.search_h-1]
                     self.selected = 0
+                elif ch == ord('+') and self.search_h < self.height-5:
+                    self.search_h += 1
+                elif ch == ord('-') and self.search_h > 5:
+                    self.search_h -= 1
                 elif ch ==  ord('q'):
                     break
                 elif ch > 0 and ch < 255 and chr(ch).isalpha(): # >=  ord('a') and ch <= ord('z'):
