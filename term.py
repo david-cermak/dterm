@@ -4,6 +4,7 @@ import curses
 import curses.textpad
 import serial
 import os
+import sys
 import re
 from threading import Thread
 import time
@@ -39,6 +40,10 @@ class Terminal(object):
         self.port = None
         self.ser = None
         self.client = None
+        self.macro = []
+        if "macro" in cfg and cfg["macro"] != None:
+            for i in cfg["macro"].keys():
+                self.macro.append(i)
         if "remote" in cfg and serial_port == 'R':
             self.remote = True
             self.client = mqtt.Client()
@@ -54,23 +59,33 @@ class Terminal(object):
         curses.cbreak()
 
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_CYAN)
-        curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
-        curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+        curses.init_pair(3, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(5, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+        curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
+        curses.init_pair(7, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+        curses.init_pair(8, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(9, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+        curses.init_pair(10, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+        curses.init_pair(11, curses.COLOR_BLACK, curses.COLOR_RED)
 
         self.height, self.width = self.window.getmaxyx()
         self.search_h = 10
         self.log_height = self.height - self.search_h - 1
         self.log_width = self.width - 1
-        self.search_box = self.commands[:self.search_h-1]
         self.selected = 0
+        self.history = [ self.init_cmd ]
+        self.populate_search_box()
         self.refresh()
 
         self.len = curses.LINES
         self.run_serial = True
         self.start()
+
+    def populate_search_box(self):
+        self.search_box = self.history[:5] +  self.macro +  self.commands
 
     def refresh(self):
         curses.textpad.rectangle(self.window, 0, 0, self.search_h, self.log_width)
@@ -79,19 +94,57 @@ class Terminal(object):
         if len(self.search_box) > 0:
             for idx, item in enumerate(self.search_box[:self.search_h-2]):
                 if self.selected != 0 and self.selected == (idx+1):
-                    self.window.addstr(idx + 2, 1, item, curses.color_pair(4))
-                    self.window.addstr(1, 1, item, curses.color_pair(3))
+                    self.window.addstr(idx + 2, 1, item, curses.color_pair(9))
+                    self.window.addstr(1, 1, item, curses.color_pair(4))
                 else:
                     if self.selected == 0:
-                        self.window.addstr(1, 1, "----Enter-to-edit----", curses.color_pair(4))
-                    self.window.addstr(idx + 2, 1, item, curses.color_pair(5))
+                        self.window.addstr(1, 1, "----Enter-to-edit----", curses.color_pair(9))
+                    self.window.addstr(idx + 2, 1, item, curses.color_pair(10))
         curses.textpad.rectangle(self.window, self.search_h + 1, 0, self.height - 2, self.log_width)
+        # Ansi characters
+        ansi_escape = re.compile(r'\x1B\[[0-9]*[\;]*[0-9]*m')
         for idx, item in enumerate(self.log[-(self.height - 4  - self.search_h):]):
+            item = item.replace(b'\0', b'0').decode() 
             self.window.addstr(idx+ self.search_h + 2, 1, " "*(self.log_width - 2), curses.color_pair(1))
-            self.window.addstr(idx+ self.search_h + 2, 1, item, curses.color_pair(1))
+            m = ansi_escape.search(item)
+            pos = 0
+            last_color = curses.color_pair(1)
+            while m:
+                if m.span()[0] > 0:
+                    self.window.addstr(idx+ self.search_h + 2, 1 + pos, item[0:m.span()[0]], last_color)
+                    pos = m.span()[0]
+                if m.group() == '\x1B[0;31m':
+                    last_color = curses.color_pair(3)
+                elif m.group() == '\x1B[0;32m':
+                    last_color = curses.color_pair(4)
+                elif m.group() == '\x1B[0;33m':
+                    last_color = curses.color_pair(5)
+                elif m.group() == '\x1B[0;34m':
+                    last_color = curses.color_pair(6)
+                elif m.group() == '\x1B[0;35m':
+                    last_color = curses.color_pair(7)
+                elif m.group() == '\x1B[0;36m':
+                    last_color = curses.color_pair(8)
+                elif m.group() == '\x1B[0;41m':
+                    last_color = curses.color_pair(11)
+                elif m.group() == '\x1B[0m':
+                    last_color = curses.color_pair(1)
+                item = item[m.span()[1]:]
+                m = ansi_escape.search(item)
+            if item:
+                self.window.addstr(idx+ self.search_h + 2, 1 + pos, item, last_color)
 
     def send(self, data):
         # TODO: replace with class encapsulation (port.send)
+        if self.history[0] != data:
+            self.history.insert(0,data)
+        if data in self.macro:
+            for i in self.cfg["macro"][data]["commands"]:
+                self.send(i)
+            return
+        data = (self.prefix + data + self.sufix).encode()
+        # echo commands to window -> TODO make it configurable
+        self.log.append(b'\x1B[0;41m'+ data + b'\x1B[0m')
         if self.remote:
             self.client.publish(self.cfg["remote"]["publish"], data, 0)
         else:
@@ -105,7 +158,7 @@ class Terminal(object):
         else:
             thread1 = Thread(target = self.serial_thread )
         thread1.start()
-        self.send((self.prefix + self.init_cmd + self.sufix).encode())
+        self.send(self.init_cmd)
         search_i = 0
         search_f = ''
         try:
@@ -128,31 +181,31 @@ class Terminal(object):
                     if self.selected > max_selection:
                         self.selected = max_selection
                 elif ch == ord('\t') or ch == 9:
-                        self.window.addstr(1, 1, " "*(self.log_width - 2), curses.color_pair(3))
-                        self.window.addstr(1, 1, self.search_box[self.selected-1], curses.color_pair(3))
+                        self.window.addstr(1, 1, " "*(self.log_width - 2), curses.color_pair(4))
+                        self.window.addstr(1, 1, self.search_box[self.selected-1], curses.color_pair(1))
                         self.window.move(1, 1 + len(self.search_box[self.selected-1]))
                         self.window.nodelay(False)
                         curses.echo()
                         message = self.window.getstr(1,1 + len(self.search_box[self.selected-1]), 15)
                         self.window.nodelay(True)
                         curses.noecho()
-                        self.send(self.prefix.encode() + self.search_box[self.selected-1].encode() +  message + self.sufix.encode() )
+                        self.send(self.search_box[self.selected-1] +  message.decode())
                         self.selected = 0
                 elif ch == curses.KEY_ENTER or ch == 10 or ch == 13:
                     self.search_i = 0
                     search_f = ''
                     if self.selected == 0:
-                        self.window.addstr(1, 1, " "*(self.log_width - 2), curses.color_pair(3))
+                        self.window.addstr(1, 1, " "*(self.log_width - 2), curses.color_pair(1))
                         self.window.move(1, 1)
                         self.window.nodelay(False)
                         curses.echo()
                         message = self.window.getstr(1,1, 15)
                         self.window.nodelay(True)
                         curses.noecho()
-                        self.send(self.prefix.encode() + message + self.sufix.encode() )
+                        self.send(message.decode())
                     else:
-                        self.send(self.prefix.encode() + self.search_box[self.selected-1].encode() +self.sufix.encode() )
-                    self.search_box = self.commands[:self.search_h-1]
+                        self.send(self.search_box[self.selected-1])
+                    self.populate_search_box()
                     self.selected = 0
                 elif ch == ord('+') and self.search_h < self.height-5:
                     self.search_h += 1
@@ -160,19 +213,22 @@ class Terminal(object):
                     self.search_h -= 1
                 elif ch ==  ord('q'):
                     break
-                elif ch > 0 and ch < 255 and chr(ch).isalpha(): # >=  ord('a') and ch <= ord('z'):
+                elif ch > 0 and ch < 255 and chr(ch).isalpha():
                     search_i += 1
                     search_f += chr(ch)
                     self.window.addstr(1, 1, "Filter: " + search_f, curses.color_pair(4))
+                    full_search_box = self.search_box
                     self.search_box = []
-                    for item in self.commands:
+                    for item in full_search_box:
                         if re.match(search_f, item, re.I):
                             self.search_box.append(item)
+                    self.search_box = list(set(self.search_box))
                     self.refresh()
                 elif ch == 27: # ESC
                     search_i = 0
                     search_f = ''
-                    self.search_box = self.commands[:self.search_h-1]
+                    self.populate_search_box()
+                    # self.search_box = self.commands
                     self.refresh()
         except KeyboardInterrupt:
             pass
@@ -221,8 +277,12 @@ def main():
     args = vars(parser.parse_args())
     with open(args['json']) as f:
         cfg = json.load(f)
+    if "macro" in cfg and cfg["macro"] != None:
+        for i in cfg["macro"].keys():
+        # for i in cfg["macro"].keys()
+            print(i)
+    # exit()
     Terminal(args['port'], cfg)
-
 
 if __name__ == '__main__':
     main()
