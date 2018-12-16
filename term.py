@@ -199,7 +199,7 @@ class Terminal(object):
                         self.window.move(1, 1)
                         self.window.nodelay(False)
                         curses.echo()
-                        message = self.window.getstr(1,1, 15)
+                        message = self.window.getstr(1,1, 35)
                         self.window.nodelay(True)
                         curses.noecho()
                         self.send(message.decode())
@@ -277,11 +277,6 @@ def main():
     args = vars(parser.parse_args())
     with open(args['json']) as f:
         cfg = json.load(f)
-    if "macro" in cfg and cfg["macro"] != None:
-        for i in cfg["macro"].keys():
-        # for i in cfg["macro"].keys()
-            print(i)
-    # exit()
     Terminal(args['port'], cfg)
 
 if __name__ == '__main__':
