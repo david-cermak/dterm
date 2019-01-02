@@ -10,6 +10,15 @@
         "FW_Revision"
         ],
     "init": "help",
+    "macro": {
+        "xrun": {
+            "commands": [
+                "FW_Revision"
+            ],
+            "code": "test_code.py",
+            "autorun": 0
+        }
+    },    
     "remote": {
         "broker": "iot.eclipse.org",
         "subscribe": "/remoteterm/0001/out",
