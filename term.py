@@ -134,11 +134,24 @@ class Terminal(object):
             if item:
                 self.window.addstr(idx+ self.search_h + 2, 1 + pos, item, last_color)
 
+    def macro_code(self, code):
+        last_len = len(self.log)
+        # by default set timeout to 2 seconds
+        start = time.time()
+        while (time.time() - start) <= 2:
+            if last_len != len(self.log):
+                sys.argv = [code , self.log[last_len]]
+                execfile(code)
+                last_len = len(self.log)
+
     def send(self, data):
         # TODO: replace with class encapsulation (port.send)
         if self.history[0] != data:
             self.history.insert(0,data)
         if data in self.macro:
+            if "code" in self.cfg["macro"][data]:
+                t = Thread(target = self.macro_code, args=(self.cfg["macro"][data]["code"], ) )
+                t.start()
             for i in self.cfg["macro"][data]["commands"]:
                 self.send(i)
             return
@@ -183,13 +196,17 @@ class Terminal(object):
                 elif ch == ord('\t') or ch == 9:
                         self.window.addstr(1, 1, " "*(self.log_width - 2), curses.color_pair(4))
                         self.window.addstr(1, 1, self.search_box[self.selected-1], curses.color_pair(1))
-                        self.window.move(1, 1 + len(self.search_box[self.selected-1]))
                         self.window.nodelay(False)
                         curses.echo()
-                        message = self.window.getstr(1,1 + len(self.search_box[self.selected-1]), 15)
+                        ch = 0
+                        self.window.move(1, 1 + len(self.search_box[self.selected-1]))
+                        while ch != curses.KEY_ENTER and ch != 10 and ch != 13 and ch != 27:
+                            ch = self.window.getch()
+                        message = self.window.instr(1, 1, 50).strip()
                         self.window.nodelay(True)
                         curses.noecho()
-                        self.send(self.search_box[self.selected-1] +  message.decode())
+                        if ch != 27: # ESC
+                            self.send(message.decode())
                         self.selected = 0
                 elif ch == curses.KEY_ENTER or ch == 10 or ch == 13:
                     self.search_i = 0
@@ -228,7 +245,6 @@ class Terminal(object):
                     search_i = 0
                     search_f = ''
                     self.populate_search_box()
-                    # self.search_box = self.commands
                     self.refresh()
         except KeyboardInterrupt:
             pass
